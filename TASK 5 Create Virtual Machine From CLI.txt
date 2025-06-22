@@ -1,0 +1,229 @@
+TASK 6: Create Virtual Machine from Azure PowerShell
+
+This document provides step-by-step instructions and Azure PowerShell commands to create a Virtual Network (VNet) with a subnet, along with a Public IP, Network Security Group (NSG), Network Interface Card (NIC), and then deploy a Virtual Machine (VM) into that VNet using Azure PowerShell.
+
+---
+
+1.  PREREQUISITES
+
+    a.  **Install Azure PowerShell Module:** Ensure you have the Az PowerShell module installed. If not, follow the official Azure documentation for installation: https://docs.microsoft.com/en-us/powershell/azure/install-az-ps
+
+    b.  **Log in to Azure:** Open PowerShell and log in to your Azure account:
+        ```powershell
+        Connect-AzAccount
+        ```
+        Follow the on-screen instructions to complete the login process.
+
+    c.  **Set Subscription (Optional but Recommended):** If you have multiple subscriptions, set the active subscription to the one you want to use:
+        ```powershell
+        Set-AzContext -SubscriptionName "Your Subscription Name"
+        # Or by ID: Set-AzContext -SubscriptionId "Your Subscription ID"
+        ```
+
+---
+
+2.  DEFINE COMMON VARIABLES
+
+    It's good practice to define variables at the beginning to easily customize your deployment.
+
+    ```powershell
+    # Resource Group Details
+    $resourceGroupName = "myPoshVM_RG"
+    $location = "eastus" # Choose an Azure region, e.g., "West US 2", "East US", "Central US", "West Europe"
+
+    # Virtual Network Details
+    $vnetName = "myPoshVnet"
+    $subnetName = "myPoshSubnet"
+    $vnetPrefix = "10.0.0.0/16"
+    $subnetPrefix = "10.0.0.0/24"
+
+    # Public IP Details
+    $publicIpName = "myPoshVM_PublicIP"
+    $publicIpSku = "Standard" # Options: Basic, Standard
+
+    # Network Security Group Details
+    $nsgName = "myPoshVM_NSG"
+    $sshRuleName = "SSH_Rule" # For Linux VMs
+    $rdpRuleName = "RDP_Rule" # For Windows VMs
+
+    # Network Interface Card Details
+    $nicName = "myPoshVM_NIC"
+
+    # Virtual Machine Details
+    $vmName = "myPoshVM"
+    $vmSize = "Standard_DS1_v2" # Example VM size. Choose based on your needs.
+    $adminUsername = "azureuser" # Your desired admin username for the VM
+    $adminPassword = ConvertTo-SecureString "YourStrongPassword123!" -AsPlainText -Force # !! Change this !!
+    $imagePublisher = "Canonical"
+    $imageOffer = "UbuntuServer"
+    $imageSku = "22.04-LTS"
+    # For Windows:
+    # $imagePublisher = "MicrosoftWindowsServer"
+    # $imageOffer = "WindowsServer"
+    # $imageSku = "2022-Datacenter"
+    ```
+
+---
+
+3.  CREATE A RESOURCE GROUP
+
+    ```powershell
+    New-AzResourceGroup -Name $resourceGroupName -Location $location
+    ```
+
+---
+
+4.  CREATE VIRTUAL NETWORK AND SUBNET
+
+    ```powershell
+    $vnet = New-AzVirtualNetwork `
+        -ResourceGroupName $resourceGroupName `
+        -Location $location `
+        -Name $vnetName `
+        -AddressPrefix $vnetPrefix
+
+    Add-AzVirtualNetworkSubnetConfig `
+        -Name $subnetName `
+        -AddressPrefix $subnetPrefix `
+        -VirtualNetwork $vnet | Out-Null # Out-Null to suppress immediate output
+
+    $vnet | Set-AzVirtualNetwork
+    ```
+
+---
+
+5.  CREATE PUBLIC IP ADDRESS
+
+    This public IP will allow external access to your VM.
+
+    ```powershell
+    $publicIp = New-AzPublicIpAddress `
+        -ResourceGroupName $resourceGroupName `
+        -Location $location `
+        -Name $publicIpName `
+        -AllocationMethod Dynamic ` # Options: Dynamic, Static
+        -Sku $publicIpSku
+    ```
+
+---
+
+6.  CREATE NETWORK SECURITY GROUP (NSG) AND RULES
+
+    The NSG acts as a virtual firewall to control inbound and outbound traffic to your VM.
+
+    ```powershell
+    $nsg = New-AzNetworkSecurityGroup `
+        -ResourceGroupName $resourceGroupName `
+        -Location $location `
+        -Name $nsgName
+
+    # Add SSH Rule for Linux (Port 22)
+    Add-AzNetworkSecurityRuleConfig `
+        -Name $sshRuleName `
+        -NetworkSecurityGroup $nsg `
+        -Access Allow `
+        -Protocol Tcp `
+        -Direction Inbound `
+        -Priority 1000 `
+        -SourceAddressPrefix Internet `
+        -SourcePortRange * `
+        -DestinationAddressPrefix * `
+        -DestinationPortRange 22 | Out-Null
+
+    # Add RDP Rule for Windows (Port 3389) - Uncomment if creating a Windows VM
+    # Add-AzNetworkSecurityRuleConfig `
+    #     -Name $rdpRuleName `
+    #     -NetworkSecurityGroup $nsg `
+    #     -Access Allow `
+    #     -Protocol Tcp `
+    #     -Direction Inbound `
+    #     -Priority 1001 `
+    #     -SourceAddressPrefix Internet `
+    #     -SourcePortRange * `
+    #     -DestinationAddressPrefix * `
+    #     -DestinationPortRange 3389 | Out-Null
+
+    $nsg | Set-AzNetworkSecurityGroup
+    ```
+
+---
+
+7.  CREATE NETWORK INTERFACE CARD (NIC)
+
+    The NIC connects the VM to the VNet, Public IP, and NSG.
+
+    ```powershell
+    $nic = New-AzNetworkInterface `
+        -Name $nicName `
+        -ResourceGroupName $resourceGroupName `
+        -Location $location `
+        -SubnetId (Get-AzVirtualNetworkSubnetConfig -Name $subnetName -VirtualNetwork $vnet).Id `
+        -PublicIpAddressId $publicIp.Id `
+        -NetworkSecurityGroupId $nsg.Id
+    ```
+
+---
+
+8.  CREATE VIRTUAL MACHINE
+
+    Finally, create the VM using the configured network components.
+
+    ```powershell
+    $vmConfig = New-AzVMConfig `
+        -VMName $vmName `
+        -VMSize $vmSize
+
+    $vmConfig = Set-AzVMOperatingSystem `
+        -VM $vmConfig `
+        -Linux ` # Or -Windows for Windows VMs
+        -ComputerName $vmName `
+        -Credential (New-Object System.Management.Automation.PSCredential($adminUsername, $adminPassword)) `
+        -OpenPorts 22 # For Linux. For Windows, use -OpenPorts 3389. This opens internal firewall. NSG handles external.
+
+    $vmConfig = Set-AzVMSourceImage `
+        -VM $vmConfig `
+        -PublisherName $imagePublisher `
+        -Offer $imageOffer `
+        -Skus $imageSku `
+        -Version "latest"
+
+    $vmConfig = Add-AzVMNetworkInterface `
+        -VM $vmConfig `
+        -Id $nic.Id
+
+    # To use SSH Key authentication for Linux (recommended):
+    # Instead of -Credential, use:
+    # $sshPublicKey = (Get-Content -Path "~/.ssh/id_rsa.pub").Replace("`n","") # Replace with your public key path
+    # $vmConfig = Set-AzVMOperatingSystem -VM $vmConfig -Linux -ComputerName $vmName -Credential (New-Object System.Management.Automation.PSCredential($adminUsername, $adminPassword))
+    # $vmConfig = Add-AzVMSshKey -VM $vmConfig -Path "/home/$adminUsername/.ssh/authorized_keys" -Value $sshPublicKey
+    # NOTE: The -Credential is still needed for initial setup, but password login can be disabled later.
+
+    New-AzVM -ResourceGroupName $resourceGroupName -Location $location -VM $vmConfig
+    ```
+
+---
+
+9.  VERIFY CREATION
+
+    You can check the status and public IP address of your VM.
+
+    ```powershell
+    # Get VM status and details
+    Get-AzVM -ResourceGroupName $resourceGroupName -Name $vmName -Status
+
+    # Get the Public IP address of the VM
+    Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name $publicIpName | Select-Object IpAddress
+    ```
+    Use the `IpAddress` obtained to connect to your VM via SSH (for Linux) or RDP (for Windows).
+
+---
+
+10. CLEAN UP RESOURCES (OPTIONAL)
+
+    When you are finished, you can delete the resource group to remove all created resources.
+
+    ```powershell
+    Remove-AzResourceGroup -Name $resourceGroupName -Force -AsJob # -AsJob runs it in background
+    ```
+    * **-Force:** Confirms the deletion without a prompt.
+    * **-AsJob:** Runs the command as a background job, allowing you to continue using your PowerShell console.

@@ -1,0 +1,133 @@
+TASK 5: Create Azure Key Vault, Store Secrets, Configure Access Policies, and Retrieve Secrets using Azure CLI
+
+This document provides step-by-step instructions and Azure CLI commands to create an Azure Key Vault, add a secret to it, configure an access policy to grant a user permissions, and then retrieve that secret.
+
+---
+
+1.  PREREQUISITES
+
+    a.  **Azure CLI Installed and Logged In:** Ensure you have the Azure CLI installed and are logged in to your Azure account.
+        ```bash
+        az login
+        ```
+    b.  **Set Subscription (if needed):** Confirm you are working within the correct subscription.
+        ```bash
+        az account set --subscription "Your Subscription Name or ID"
+        ```
+    c.  **Identify Your User Object ID:** To grant access to yourself, you'll need your Azure AD Object ID.
+        ```bash
+        # This command retrieves the object ID of the currently logged-in user
+        YOUR_USER_OBJECT_ID=$(az ad signed-in-user show --query objectId -o tsv)
+        echo "Your User Object ID: $YOUR_USER_OBJECT_ID"
+        ```
+        Keep this `YOUR_USER_OBJECT_ID` handy, as we will use it in step 4.
+
+---
+
+2.  CREATE A RESOURCE GROUP (IF NOT ALREADY CREATED)
+
+    If you don't have a resource group ready, create one to contain your Key Vault.
+
+    ```bash
+    # Define variables for resource group name and location
+    RESOURCE_GROUP_NAME="myKeyVaultRG"
+    LOCATION="eastus" # Choose a region, e.g., eastus, westus2, centralus, westeurope
+
+    # Create the resource group
+    az group create --name $RESOURCE_GROUP_NAME --location $LOCATION
+    ```
+
+---
+
+3.  CREATE AZURE KEY VAULT
+
+    Now, create the Azure Key Vault. The Key Vault name must be globally unique.
+
+    ```bash
+    # Define variables for Key Vault name and SKU
+    KEY_VAULT_NAME="myuniquevault$(head /dev/urandom | tr -dc a-z0-9 | head -c 10)" # Generates a unique name
+    SKU_TIER="standard" # Options: standard, premium (for HSM-backed keys)
+
+    # Create the Key Vault
+    az keyvault create \
+      --name "$KEY_VAULT_NAME" \
+      --resource-group "$RESOURCE_GROUP_NAME" \
+      --location "$LOCATION" \
+      --sku "$SKU_TIER" \
+      --enable-rbac-authorization false # We'll manage access via traditional access policies for this task
+    ```
+    * **KEY_VAULT_NAME:** Must be a globally unique name. The command includes a random suffix for uniqueness.
+    * **--sku:** `standard` for software-protected keys, `premium` for HSM-backed keys.
+    * **--enable-rbac-authorization false:** For this task, we are explicitly demonstrating traditional Key Vault access policies. If set to `true`, you would manage permissions via Azure RBAC roles on the Key Vault resource itself (e.g., "Key Vault Administrator", "Key Vault Secret User").
+
+---
+
+4.  CONFIGURE ACCESS POLICIES FOR THE KEY VAULT
+
+    This step grants specific permissions to a user or application to manage secrets and keys within the Key Vault. We will grant permissions to the user currently logged into the Azure CLI.
+
+    ```bash
+    # Grant permissions to your user for secrets and keys
+    az keyvault set-policy \
+      --name "$KEY_VAULT_NAME" \
+      --object-id "$YOUR_USER_OBJECT_ID" \
+      --secret-permissions get list set delete \
+      --key-permissions get list create delete decrypt encrypt sign verify \
+      --certificate-permissions get list create import delete
+    ```
+    * **--name:** The name of your Key Vault.
+    * **--object-id:** The Azure AD Object ID of the user or service principal to whom you are granting permissions. We used `YOUR_USER_OBJECT_ID` from step 1.
+    * **--secret-permissions:** Specifies the allowed operations on secrets (e.g., `get`, `list`, `set`, `delete`).
+    * **--key-permissions:** Specifies the allowed operations on keys.
+    * **--certificate-permissions:** Specifies the allowed operations on certificates.
+
+---
+
+5.  STORE A SECRET IN KEY VAULT
+
+    Now, let's store a sample secret in the Key Vault.
+
+    ```bash
+    # Define variables for secret name and value
+    SECRET_NAME="myTestSecret"
+    SECRET_VALUE="ThisIsMySuperSecretValue123!" # Replace with your actual secret
+
+    # Set the secret
+    az keyvault secret set \
+      --vault-name "$KEY_VAULT_NAME" \
+      --name "$SECRET_NAME" \
+      --value "$SECRET_VALUE"
+    ```
+    * **--vault-name:** The name of your Key Vault.
+    * **--name:** The name you want to give to your secret.
+    * **--value:** The actual secret string.
+
+---
+
+6.  RETRIEVE SECRET FROM KEY VAULT USING AZURE CLI
+
+    Finally, retrieve the secret you just stored.
+
+    ```bash
+    # Retrieve the secret value
+    az keyvault secret show \
+      --vault-name "$KEY_VAULT_NAME" \
+      --name "$SECRET_NAME" \
+      --query "value" -o tsv
+    ```
+    * **--vault-name:** The name of your Key Vault.
+    * **--name:** The name of the secret you want to retrieve.
+    * **--query "value" -o tsv:** This filters the output to show only the secret's value in a plain text format.
+
+---
+
+7.  CLEAN UP RESOURCES (OPTIONAL)
+
+    If you want to remove the created resources after completing the task:
+
+    ```bash
+    # Delete the resource group and all its contents (Key Vault, etc.)
+    az group delete --name "$RESOURCE_GROUP_NAME" --yes --no-wait
+    ```
+    * **--yes:** Confirms the deletion without a prompt.
+    * **--no-wait:** Does not wait for the deletion to complete.

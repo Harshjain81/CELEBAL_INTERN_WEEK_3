@@ -1,0 +1,238 @@
+Here's the content for `task 7.txt` detailing how to schedule daily VM backups, configure retention, create a CPU alert rule with email notification, and provision backups (conceptually covered by enabling backup).
+
+**Important Note:** To run these commands, you will need to have the Azure PowerShell module installed on your local machine and be logged in to your Azure account. Replace placeholder values like `YourSubscriptionNameOrID`, `YourVMName`, `YourEmailAddress` with your actual Azure resource names and contact information.
+
+````text
+TASK 7: VM Backup, Alert Rule, and Backup Center Configuration using Azure PowerShell
+
+This document provides step-by-step instructions and Azure PowerShell commands to:
+A. Schedule a daily backup of a Virtual Machine at 3:00 AM using an Azure Recovery Services vault, configure retention, and create an alert rule for VM CPU percentage with email notification.
+B. Provision backups (conceptually covered by enabling backup) and retain an old backup.
+
+---
+
+A. SCHEDULE DAILY VM BACKUP & CREATE CPU ALERT RULE
+
+1.  PREREQUISITES
+
+    a.  **Azure PowerShell Installed and Logged In:** Ensure you have the Az PowerShell module installed and are logged in.
+        ```powershell
+        Connect-AzAccount
+        ```
+    b.  **Set Subscription (if needed):**
+        ```powershell
+        Set-AzContext -SubscriptionName "YourSubscriptionNameOrID"
+        ```
+    c.  **Existing VM:** You need an existing Azure Virtual Machine. If you followed Task 6, you can use the VM created there.
+        ```powershell
+        # Define VM variables (update with your VM details from Task 6 or an existing VM)
+        $resourceGroupName = "myPoshVM_RG" # Resource group where your VM is located
+        $vmName = "myPoshVM" # Name of your VM
+        $location = "eastus" # Location of your VM
+        ```
+    d.  **Existing Recovery Services Vault or Create New:** You'll need a Recovery Services Vault.
+        ```powershell
+        # Define Recovery Services Vault variables
+        $vaultRGName = "myRecoveryServicesVaultRG" # Resource Group for the vault (can be same as VM's RG)
+        $vaultName = "myVMBackupsVault" # Unique name for your Recovery Services Vault
+
+        # Create Resource Group for Vault if it doesn't exist
+        Write-Host "Checking if resource group '$vaultRGName' exists..."
+        $rg = Get-AzResourceGroup -Name $vaultRGName -ErrorAction SilentlyContinue
+        if (-not $rg) {
+            Write-Host "Creating resource group '$vaultRGName'..."
+            New-AzResourceGroup -Name $vaultRGName -Location $location
+        } else {
+            Write-Host "Resource group '$vaultRGName' already exists."
+        }
+
+        # Create Recovery Services Vault (if it doesn't exist)
+        Write-Host "Checking if Recovery Services Vault '$vaultName' exists..."
+        $vault = Get-AzRecoveryServicesVault -Name $vaultName -ResourceGroupName $vaultRGName -ErrorAction SilentlyContinue
+        if (-not $vault) {
+            Write-Host "Creating Recovery Services Vault '$vaultName'..."
+            $vault = New-AzRecoveryServicesVault `
+                -Name $vaultName `
+                -ResourceGroupName $vaultRGName `
+                -Location $location `
+                -RestoreBlobTiering true ` # Optional: Enable soft delete and blob tiering
+                -SoftDeleteFeatureState Enabled
+            Write-Host "Recovery Services Vault '$vaultName' created successfully."
+        } else {
+            Write-Host "Recovery Services Vault '$vaultName' already exists."
+        }
+
+        # Set the context to the Recovery Services Vault
+        Set-AzRecoveryServicesVaultContext -Vault $vault
+        ```
+    e.  **Email Address for Alerts:**
+        ```powershell
+        $alertEmail = "YourEmailAddress@example.com" # Replace with your email
+        ```
+
+2.  SCHEDULE A DAILY BACKUP OF VM AT 3:00 AM USING VAULT & CONFIGURE RETENTION
+
+    This involves defining a backup policy and then linking your VM to it.
+
+    ```powershell
+    # Define Backup Policy variables
+    $backupPolicyName = "Daily3AMVMBackupPolicy"
+    $retentionDays = 30 # Retain daily backups for 30 days
+    $retentionWeekly = 4 # Retain weekly backups for 4 weeks (if policy supports weekly)
+    $retentionMonthly = 12 # Retain monthly backups for 12 months
+    $retentionYearly = 5 # Retain yearly backups for 5 years
+
+    # Get the default protection policy or create a new one
+    Write-Host "Creating or getting backup policy '$backupPolicyName'..."
+    $policy = Get-AzRecoveryServicesBackupProtectionPolicy `
+        -Name $backupPolicyName `
+        -VaultId $vault.ID `
+        -ErrorAction SilentlyContinue
+
+    if (-not $policy) {
+        Write-Host "Policy '$backupPolicyName' not found. Creating a new one..."
+        # Create a new backup policy for VMs
+        $policy = New-AzRecoveryServicesBackupProtectionPolicy `
+            -Name $backupPolicyName `
+            -VaultId $vault.ID `
+            -WorkloadType AzureVM `
+            -RetentionPolicy (Get-AzRecoveryServicesBackupRetentionPolicyObject `
+                -Daily -RetentionDurationInDays $retentionDays) `
+            -SchedulePolicy (Get-AzRecoveryServicesBackupSchedulePolicyObject `
+                -Daily `
+                -StartTime (Get-Date "03:00 AM").ToUniversalTime() `
+                -ScheduleRunFrequency Daily)
+
+        # To add weekly, monthly, yearly retention (more advanced, uncomment if needed)
+        # $policy.RetentionPolicy.Is= (Get-AzRecoveryServicesBackupRetentionPolicyObject `
+        #     -Daily -RetentionDurationInDays $retentionDays `
+        #     -Weekly -RetentionDurationInWeeks $retentionWeekly `
+        #     -Monthly -RetentionDurationInMonths $retentionMonthly `
+        #     -Yearly -RetentionDurationInYears $retentionYearly).Policy
+        # Set-AzRecoveryServicesBackupProtectionPolicy -Policy $policy -VaultId $vault.ID
+
+        Write-Host "Backup policy '$backupPolicyName' created successfully."
+    } else {
+        Write-Host "Backup policy '$backupPolicyName' already exists. Updating its schedule and retention..."
+        # Update schedule to 3 AM Daily
+        $policy.SchedulePolicy.ScheduleRunFrequency = "Daily"
+        $policy.SchedulePolicy.ScheduleRunTimes[0] = (Get-Date "03:00 AM").ToUniversalTime()
+        $policy.RetentionPolicy.Is = (Get-AzRecoveryServicesBackupRetentionPolicyObject `
+            -Daily -RetentionDurationInDays $retentionDays).Policy
+        Set-AzRecoveryServicesBackupProtectionPolicy -Policy $policy -VaultId $vault.ID
+        Write-Host "Backup policy '$backupPolicyName' updated successfully."
+    }
+
+
+    # Enable backup for the VM with the created policy
+    Write-Host "Enabling backup for VM '$vmName' using policy '$backupPolicyName'..."
+    Enable-AzRecoveryServicesBackupProtection `
+        -Name $vmName `
+        -ResourceGroupName $resourceGroupName `
+        -Policy $policy `
+        -VaultId $vault.ID
+    Write-Host "Backup enabled for VM '$vmName'. Initial backup will run based on policy schedule."
+
+    # To force an immediate backup for testing (Optional)
+    # Write-Host "Initiating an immediate backup for VM '$vmName'..."
+    # $backupContainer = Get-AzRecoveryServicesBackupContainer -ContainerType AzureVM -FriendlyName $vmName
+    # $backupItem = Get-AzRecoveryServicesBackupItem -Container $backupContainer -WorkloadType AzureVM
+    # Backup-AzRecoveryServicesBackupItem -Item $backupItem
+    # Write-Host "Immediate backup initiated. You can monitor its progress in the Azure portal."
+    ```
+
+3.  CREATE AN ALERT RULE FOR VM CPU PERCENTAGE
+
+    This involves creating an Action Group for email notifications and then an Alert Rule that uses this Action Group.
+
+    ```powershell
+    # Define Alert Rule variables
+    $alertRuleName = "VM_CPU_High_Alert"
+    $alertDescription = "Alert when VM CPU usage exceeds 80%."
+    $actionGroupName = "EmailAdmins"
+    $alertThreshold = 80 # CPU percentage threshold
+
+    # 3.1. Create an Action Group for email notification
+    Write-Host "Creating or getting Action Group '$actionGroupName'..."
+    $actionGroup = Get-AzActionGroup -ResourceGroupName $resourceGroupName -Name $actionGroupName -ErrorAction SilentlyContinue
+
+    if (-not $actionGroup) {
+        Write-Host "Action Group '$actionGroupName' not found. Creating a new one..."
+        $actionGroup = New-AzActionGroup `
+            -ResourceGroupName $resourceGroupName `
+            -Name $actionGroupName `
+            -ShortName "EmailAdmins" `
+            -Receiver @{ `
+                'Name' = 'EmailReceiver'; `
+                'EmailReceiver' = @{'EmailAddress' = $alertEmail; 'Name' = 'Admin Email'} `
+            }
+        Write-Host "Action Group '$actionGroupName' created successfully."
+    } else {
+        Write-Host "Action Group '$actionGroupName' already exists."
+    }
+
+
+    # 3.2. Create the Metric Alert Rule for VM CPU percentage
+    Write-Host "Creating or updating Alert Rule '$alertRuleName'..."
+    $vmResourceId = (Get-AzVM -ResourceGroupName $resourceGroupName -Name $vmName).Id
+
+    Add-AzMetricAlertRuleV2 `
+        -ResourceGroupName $resourceGroupName `
+        -Name $alertRuleName `
+        -TargetResourceId $vmResourceId `
+        -MetricName "Percentage CPU" `
+        -MetricNamespace "microsoft.compute/virtualmachines" `
+        -TimeAggregation "Average" `
+        -CriterionName "CPU Percentage" `
+        -Operator "GreaterThan" `
+        -Threshold $alertThreshold `
+        -FrequencyshortAlertWindow "PT1M" ` # Check every 1 minute
+        -WindowSize "PT5M" ` # Look at data over a 5-minute window
+        -Description $alertDescription `
+        -Severity 2 ` # 0=Critical, 1=Error, 2=Warning, 3=Informational, 4=Verbose
+        -ActionGroupResourceId $actionGroup.Id
+    Write-Host "Alert rule '$alertRuleName' created successfully."
+    ```
+
+---
+
+B. PROVISION BACKUPS IN BACKUP CENTER & RETAIN OLD BACKUP
+
+* **Provision Backups in Backup Center:** When you enable backup for a VM using a Recovery Services Vault (as done in section A.2), this action conceptually "provisions" the VM for backup in the Azure Backup Center. The Backup Center in the Azure portal provides a centralized view and management plane for all your backups across different vaults and workloads. You can verify this by navigating to the "Backup Center" in the Azure portal after completing step A.2.
+
+* **Retain an old backup:** The retention period is configured within the backup policy (as shown in section A.2 with `$retentionDays` and potentially other retention settings). Once backups start occurring, Azure Backup automatically manages the deletion of older recovery points based on this configured retention policy, thereby "retaining" backups up to the specified duration. An "old backup" will be retained as long as it falls within the configured retention duration. If you want to explicitly retain a *specific* older backup indefinitely or for a longer period outside the policy, you would typically need to create a "snapshot" or "copy" of that specific recovery point or export it. However, the standard mechanism for "retaining old backups" is the policy's retention settings.
+
+---
+
+CLEAN UP RESOURCES (OPTIONAL)
+
+If you want to remove the created resources after completing the task:
+
+```powershell
+# Remove the policy assignment
+# This step is if you manually assigned a policy to the vault, not directly related to backup policy.
+# Skipping for this task.
+
+# Remove Backup Protection from the VM (this will stop future backups but keep existing recovery points)
+Disable-AzRecoveryServicesBackupProtection `
+    -Item (Get-AzRecoveryServicesBackupItem -VaultId $vault.ID -BackupManagementType AzureVM -WorkloadType AzureVM -Name $vmName) `
+    -VaultId $vault.ID `
+    -RemoveRecoveryPoints # This will also delete existing recovery points, be careful!
+    # If you want to retain recovery points, remove -RemoveRecoveryPoints and let them expire per policy
+
+# Remove the Recovery Services Vault (this will fail if protected items exist and haven't been deleted or protection stopped)
+Remove-AzRecoveryServicesVault -ResourceGroupName $vaultRGName -Name $vaultName -Force -AsJob
+
+# Remove the Action Group
+Remove-AzActionGroup -ResourceGroupName $resourceGroupName -Name $actionGroupName -Force -AsJob
+
+# Remove the Alert Rule
+Remove-AzMetricAlertRuleV2 -ResourceGroupName $resourceGroupName -Name $alertRuleName -Force -AsJob
+
+# Remove the Resource Group if it only contained the VM and associated resources
+# If $resourceGroupName is the same as $vaultRGName, deleting it will remove everything.
+# Remove-AzResourceGroup -Name $resourceGroupName -Force -AsJob
+````
+
+```
+```

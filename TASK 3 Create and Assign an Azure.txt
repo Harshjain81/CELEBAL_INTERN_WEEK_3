@@ -1,0 +1,69 @@
+TASK 4: Create and Assign an Azure Policy at the Subscription Level
+
+This document outlines the steps and Azure CLI commands to create a new Azure Policy definition and then assign it at the subscription level. For this example, we will create a policy that audits virtual machines that are not using managed disks.
+
+---
+
+1.  PREREQUISITES
+
+    a.  **Azure CLI Installed and Logged In:** Ensure you have the Azure CLI installed and are logged in to your Azure account.
+        ```bash
+        az login
+        ```
+    b.  **Set Subscription (if needed):** Confirm you are working within the correct subscription.
+        ```bash
+        az account set --subscription "Your Subscription Name or ID"
+        ```
+
+---
+
+2.  DEFINE THE POLICY RULE (POLICY.JSON)
+
+    Azure policies are defined using JSON. Create a file named `policy.json` with the following content. This policy audits VMs that use unmanaged disks.
+
+    ```json
+    {
+        "if": {
+            "allOf": [
+                {
+                    "field": "type",
+                    "equals": "Microsoft.Compute/virtualMachines"
+                },
+                {
+                    "field": "Microsoft.Compute/virtualMachines/storageProfile.osDisk.createOption",
+                    "equals": "FromImage"
+                },
+                {
+                    "field": "Microsoft.Compute/virtualMachines/storageProfile.osDisk.managedDisk.id",
+                    "exists": false
+                }
+            ]
+        },
+        "then": {
+            "effect": "audit"
+        }
+    }
+    ```
+    * **if:** Defines the condition under which the policy is applied.
+        * `field": "type", "equals": "Microsoft.Compute/virtualMachines"`: Targets VM resources.
+        * `field": "...osDisk.createOption", "equals": "FromImage"`: Checks if the OS disk was created from an image.
+        * `field": "...managedDisk.id", "exists": false`: Checks if a managed disk ID does *not* exist (meaning it's an unmanaged disk).
+    * **then:** Defines the effect of the policy if the condition is met.
+        * `"effect": "audit"`: This effect logs a non-compliance event in the activity log but does not stop the operation. Other effects include `deny`, `auditIfNotExists`, `deployIfNotExists`, `modify`, `disabled`.
+
+---
+
+3.  CREATE THE POLICY DEFINITION
+
+    Now, use the Azure CLI to create the policy definition based on the `policy.json` file.
+
+    ```bash
+    # Define a variable for the policy definition name
+    POLICY_DEFINITION_NAME="audit-unmanaged-vms"
+    POLICY_DISPLAY_NAME="Audit VMs with Unmanaged Disks"
+    POLICY_DESCRIPTION="Audits virtual machines that are not using Azure managed disks for their OS disk."
+    POLICY_CATEGORY="Compute" # Categorizes the policy
+
+    az policy definition create \
+      --name "$POLICY_DEFINITION_NAME" \
+      --display-name "$POLICY_DISPLAY_

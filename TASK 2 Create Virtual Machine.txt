@@ -1,0 +1,165 @@
+TASK 3: Create Virtual Machine and Virtual Network from Azure CLI
+
+This document provides step-by-step instructions and Azure CLI commands to create a Virtual Network (VNet) with a subnet, and then deploy a Virtual Machine (VM) into that VNet using the Azure Command-Line Interface (CLI).
+
+---
+
+1.  PREREQUISITES
+
+    a.  **Install Azure CLI:** Ensure you have the Azure CLI installed on your local machine. If not, follow the official Azure documentation for installation: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
+
+    b.  **Log in to Azure:** Open your command prompt or terminal and log in to your Azure account using the following command:
+        ```bash
+        az login
+        ```
+        Follow the on-screen instructions to complete the login process in your web browser.
+
+    c.  **Set Subscription (Optional but Recommended):** If you have multiple subscriptions, set the active subscription to the one you want to use for these resources:
+        ```bash
+        az account set --subscription "Your Subscription Name or ID"
+        ```
+
+---
+
+2.  CREATE A RESOURCE GROUP
+
+    A resource group is a logical container for your Azure resources. We'll create one to hold our VNet and VM.
+
+    ```bash
+    # Define variables for resource group name and location
+    RESOURCE_GROUP_NAME="myAzureCliRG"
+    LOCATION="eastus" # Choose a region close to you, e.g., westus2, centralus, westeurope
+
+    # Create the resource group
+    az group create --name $RESOURCE_GROUP_NAME --location $LOCATION
+    ```
+    * **RESOURCE_GROUP_NAME:** A unique name for your resource group.
+    * **LOCATION:** The Azure region where your resources will be deployed.
+
+---
+
+3.  CREATE VIRTUAL NETWORK (VNET) AND SUBNET
+
+    A Virtual Network provides private connectivity between Azure resources and to on-premises networks.
+
+    ```bash
+    # Define variables for VNet and Subnet names, and IP ranges
+    VNET_NAME="myVnet"
+    SUBNET_NAME="mySubnet"
+    VNET_PREFIX="10.0.0.0/16"
+    SUBNET_PREFIX="10.0.0.0/24"
+
+    # Create the Virtual Network
+    az network vnet create \
+      --resource-group $RESOURCE_GROUP_NAME \
+      --name $VNET_NAME \
+      --address-prefix $VNET_PREFIX \
+      --location $LOCATION \
+      --subnet-name $SUBNET_NAME \
+      --subnet-prefix $SUBNET_PREFIX
+    ```
+    * **VNET_NAME:** Name for your Virtual Network.
+    * **SUBNET_NAME:** Name for the subnet within your VNet.
+    * **VNET_PREFIX:** The address space for the VNet in CIDR format (e.g., 10.0.0.0/16).
+    * **SUBNET_PREFIX:** The address space for the subnet, which must be part of the VNet's address space (e.g., 10.0.0.0/24).
+
+---
+
+4.  CREATE VIRTUAL MACHINE (VM)
+
+    Now we'll create a Linux VM and place it within the VNet and subnet we just created.
+
+    ```bash
+    # Define variables for VM details
+    VM_NAME="myCliVM"
+    ADMIN_USERNAME="azureuser" # Your desired admin username for the VM
+    # IMPORTANT: Replace 'YourStrongPassword123!' with a strong password for your VM
+    # Or, use --generate-ssh-keys if you're connecting via SSH (recommended for Linux)
+    ADMIN_PASSWORD="YourStrongPassword123!" # !! Change this !!
+
+    # Create the Virtual Machine
+    az vm create \
+      --resource-group $RESOURCE_GROUP_NAME \
+      --name $VM_NAME \
+      --image Ubuntu2204 \
+      --admin-username $ADMIN_USERNAME \
+      --admin-password $ADMIN_PASSWORD \
+      --vnet-name $VNET_NAME \
+      --subnet $SUBNET_NAME \
+      --public-ip-sku Standard \
+      --private-ip-address "10.0.0.4" \ # Optional: Assign a specific private IP within the subnet
+      --size Standard_DS1_v2 \ # Optional: Choose VM size (e.g., Standard_B1s, Standard_DS1_v2)
+      --location $LOCATION \
+      --zone 1 \ # Optional: Deploy to an availability zone for high availability
+      --accelerated-networking true \ # Optional: Enable accelerated networking
+      --no-wait # Optional: Do not wait for the command to complete
+
+    # If you prefer SSH key authentication for Linux (highly recommended):
+    # az vm create \
+    #   --resource-group $RESOURCE_GROUP_NAME \
+    #   --name $VM_NAME \
+    #   --image Ubuntu2204 \
+    #   --admin-username $ADMIN_USERNAME \
+    #   --generate-ssh-keys \ # This generates SSH keys if they don't exist and places the public key on the VM
+    #   --vnet-name $VNET_NAME \
+    #   --subnet $SUBNET_NAME \
+    #   --public-ip-sku Standard \
+    #   --location $LOCATION \
+    #   --no-wait
+
+    # Open port 22 for SSH access (for Linux VMs)
+    az vm open-port --resource-group $RESOURCE_GROUP_NAME --name $VM_NAME --port 22 --priority 1000
+
+    # For Windows VMs, use an image like 'Win2022Datacenter' and open port 3389 for RDP:
+    # az vm create \
+    #   --resource-group $RESOURCE_GROUP_NAME \
+    #   --name $VM_NAME \
+    #   --image Win2022Datacenter \
+    #   --admin-username $ADMIN_USERNAME \
+    #   --admin-password $ADMIN_PASSWORD \
+    #   --vnet-name $VNET_NAME \
+    #   --subnet $SUBNET_NAME \
+    #   --public-ip-sku Standard \
+    #   --location $LOCATION
+    # az vm open-port --resource-group $RESOURCE_GROUP_NAME --name $VM_NAME --port 3389 --priority 1000
+    ```
+    * **VM_NAME:** The name for your Virtual Machine.
+    * **--image:** The OS image to use (e.g., `Ubuntu2204`, `Debian`, `Win2022Datacenter`).
+    * **--admin-username / --admin-password:** Credentials for logging into the VM. **Always use a strong, unique password or SSH keys.**
+    * **--vnet-name / --subnet:** Specifies the network resources the VM will connect to.
+    * **--public-ip-sku Standard:** Creates a Standard Public IP, recommended for production.
+    * **--public-ip-address:** Optionally assign a static public IP that you've already created.
+    * **--private-ip-address:** Optionally assign a static private IP within the subnet's range.
+    * **--size:** The size of the VM (e.g., `Standard_B1s`, `Standard_DS1_v2`).
+    * **--no-wait:** Returns control to the terminal immediately without waiting for VM creation to complete.
+
+---
+
+5.  VERIFY CREATION
+
+    You can verify that your resources have been created by listing them.
+
+    ```bash
+    # List VMs in the resource group
+    az vm list --resource-group $RESOURCE_GROUP_NAME --output table
+
+    # Get details of the VM (including public IP address)
+    az vm show --resource-group $RESOURCE_GROUP_NAME --name $VM_NAME --show-details --query "publicIps" --output tsv
+
+    # List VNets in the resource group
+    az network vnet list --resource-group $RESOURCE_GROUP_NAME --output table
+    ```
+    The `az vm show` command will output the public IP address of your VM, which you can use to connect (e.g., via SSH for Linux or RDP for Windows).
+
+---
+
+6.  CLEAN UP RESOURCES (OPTIONAL)
+
+    When you are done with the resources, you can delete the resource group, which will delete all resources contained within it (VM, VNet, Public IP, etc.).
+
+    ```bash
+    # Delete the resource group and all its contents
+    az group delete --name $RESOURCE_GROUP_NAME --yes --no-wait
+    ```
+    * **--yes:** Confirms the deletion without a prompt.
+    * **--no-wait:** Does not wait for the deletion to complete.
