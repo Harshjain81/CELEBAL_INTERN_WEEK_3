@@ -1,0 +1,118 @@
+TASK 1: Azure Subscription, Entra ID, User/Group Management, and RBAC
+
+This document outlines the steps to observe Azure subscriptions, manage Azure Entra ID, create users and groups, and assign/test RBAC roles, including custom roles.
+
+---
+
+1.  OBSERVE ASSIGNED SUBSCRIPTIONS
+
+    a.  Log in to the Azure Portal (portal.azure.com).
+    b.  In the search bar at the top, type "Subscriptions" and select "Subscriptions" from the results.
+    c.  Observe the list of subscriptions assigned to your account, including their names, IDs, and statuses. Note down the name of the subscription you will be working with for the following tasks.
+
+---
+
+2.  OBSERVE AZURE ENTRA ID OR CREATE OWN AZURE ENTRA ID
+
+    a.  **Observe Existing Entra ID:**
+        i.  In the Azure Portal search bar, type "Azure Active Directory" (or "Azure AD") and select it from the results. (Note: It is now generally referred to as Azure Entra ID, but the search term might still show "Azure Active Directory").
+        ii.  This will take you to the overview of your default Azure Entra ID tenant. Observe the tenant name, primary domain, and tenant ID.
+
+    b.  **Create Own Azure Entra ID (if applicable and desired for a personal account):**
+        * *Note: Creating a new Azure Entra ID tenant usually requires specific permissions and might incur costs depending on your subscription type. For most personal learning scenarios, you will likely use the default tenant associated with your Azure subscription.*
+        * If you need to create a new one, navigate to "Azure Active Directory" as above, then look for options to "Manage tenants" or "Create new tenant." Follow the prompts to configure your new tenant.
+
+---
+
+3.  CREATE TEST USERS AND GROUPS
+
+    a.  **Create Test User:**
+        i.  From the Azure Entra ID overview, in the left-hand navigation, click on "Users".
+        ii.  Click "+ New user" (or "New guest user" if applicable).
+        iii. Follow the prompts:
+            * Select "Create new user".
+            * Enter a User principal name (e.g., `testuser1@yourdomain.onmicrosoft.com`).
+            * Enter a Display name (e.g., `Test User One`).
+            * Set a password (or let Azure generate one).
+            * Review and click "Create".
+        iv.  Repeat for any additional test users (e.g., `testuser2`).
+
+    b.  **Create Test Group:**
+        i.  From the Azure Entra ID overview, in the left-hand navigation, click on "Groups".
+        ii.  Click "+ New group".
+        iii. Follow the prompts:
+            * Select "Security" as the Group type.
+            * Enter a Group name (e.g., `Test_Admins`).
+            * Enter a Group description (optional).
+            * Assign owners if necessary.
+            * Click "Create".
+        iv.  Add members to the group:
+            * After the group is created, navigate to its overview.
+            * In the left-hand navigation, click on "Members".
+            * Click "+ Add members".
+            * Search for and select your created test users (e.g., `Test User One`).
+            * Click "Select".
+
+---
+
+4.  ASSIGN A RBAC ROLE TO USER AND TEST
+
+    a.  **Identify a Resource:** Choose a resource within your subscription (e.g., a Storage Account, a Resource Group, or the entire Subscription) where you want to test the RBAC role. For simplicity, we'll use a Resource Group.
+        i.  Navigate to "Resource groups" in the Azure Portal.
+        ii.  Select a specific resource group.
+
+    b.  **Assign a Built-in RBAC Role:**
+        i.  On the Resource Group's overview page, in the left-hand navigation, click on "Access control (IAM)".
+        ii.  Click "+ Add" and then "Add role assignment".
+        iii. In the "Role" tab:
+            * Search for and select a built-in role (e.g., "Reader", "Contributor"). For a basic test, "Reader" is good.
+            * Click "Next".
+        iv.  In the "Members" tab:
+            * Select "User, group, or service principal".
+            * Click "+ Select members".
+            * Search for and select your test user (e.g., `Test User One`).
+            * Click "Select".
+            * Click "Next".
+        v.  In the "Review + assign" tab, review the assignment and click "Review + assign".
+
+    c.  **Test the Role Assignment:**
+        i.  Open a new private/incognito browser window.
+        ii.  Go to portal.azure.com.
+        iii. Log in with the credentials of your test user (e.g., `testuser1@yourdomain.onmicrosoft.com`).
+        iv.  Try to perform actions on the assigned resource (e.g., for "Reader" role on a Resource Group, try to view resources within it. Attempting to delete a resource should fail). Observe the permissions granted/denied.
+        v.  Log out of the test user account.
+
+---
+
+5.  CREATE A CUSTOM ROLE AND ASSIGN TO USERS AND TEST
+
+    a.  **Create a Custom Role:**
+        i.  Navigate back to "Access control (IAM)" for your chosen scope (e.g., the Subscription or Resource Group).
+        ii.  Click "+ Add" and then "Add custom role".
+        iii. Follow the prompts:
+            * **Basics:**
+                * Provide a Custom role name (e.g., `MyCustomReader`).
+                * Provide a Description.
+                * Set "Baseline permissions" to "Start from scratch" or "Start from a JSON" (if you have an existing definition) or "Clone a role" (e.g., "Reader"). Cloning "Reader" is a good starting point for modification.
+                * Click "Next".
+            * **Permissions:**
+                * Add or remove specific permissions. For example, if you cloned "Reader", you might add a specific "read" action for a particular resource type (e.g., `Microsoft.Compute/virtualMachines/read`). Ensure you understand the impact of each permission.
+                * Click "Next".
+            * **Assignable scopes:** This is critical. Select the management groups, subscriptions, and/or resource groups where this custom role will be available for assignment.
+            * **JSON:** Review the JSON definition of your custom role.
+            * **Review + create:** Review and click "Create".
+
+    b.  **Assign the Custom Role:**
+        i.  Once the custom role is created, go back to "Access control (IAM)" for your desired scope (e.g., the Resource Group you used earlier, or the Subscription if the role is scoped broadly).
+        ii.  Click "+ Add" and then "Add role assignment".
+        iii. In the "Role" tab, search for your newly created custom role (e.g., `MyCustomReader`) and select it.
+        iv.  In the "Members" tab, select your test user (e.g., `Test User One`).
+        v.  Complete the assignment.
+
+    c.  **Test the Custom Role Assignment:**
+        i.  Open a new private/incognito browser window.
+        ii.  Log in with your test user's credentials.
+        iii. Attempt to perform actions that are specifically allowed or denied by your custom role definition. Observe the outcomes to verify the role's functionality.
+        iv. Log out of the test user account.
+
+---
